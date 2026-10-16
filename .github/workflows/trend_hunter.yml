@@ -1,0 +1,32 @@
+name: TikTok Shorts Trend Hunter Agent
+
+on:
+  schedule:
+    # Chạy vào 00:00 UTC (7:00 AM VN) và 12:00 UTC (19:00 PM VN) hàng ngày
+    - cron: '0 0,12 * * *'
+  workflow_dispatch: # Cho phép bạn bấm nút "Run workflow" bằng tay để test bất cứ lúc nào
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout mã nguồn
+      uses: actions/checkout@v3
+
+    - name: Thiết lập Python
+      uses: actions/setup-python@v4
+      with:
+        python-python-version: '3.10'
+
+    - name: Cài đặt thư viện phụ thuộc
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Chạy Agent săn xu hướng
+      env:
+        ORTHOGONAL_API_KEY: ${{ secrets.ORTHOGONAL_API_KEY }}
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: python trend_agent.py

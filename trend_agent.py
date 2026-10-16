@@ -41,8 +41,6 @@ def send_telegram_message(text):
 
 
 def call_orthogonal_agent(prompt_text):
-    """Gửi yêu cầu truy vấn đến Orthogonal API v1 search."""
-    # SỬA LỖI 2: Đổi URL từ trang chủ sang Endpoint API chính xác
     url = "https://api.orthogonal.com/v1/search"
     headers = {
         "Authorization": f"Bearer {ORTHOGONAL_API_KEY}",
@@ -66,14 +64,33 @@ def call_orthogonal_agent(prompt_text):
             return None
 
         data = response.json()
+
+        # In log thực tế ra console của GitHub Actions để kiểm tra cấu trúc
+        print(f"🔍 Cấu trúc dữ liệu JSON trả về: {data}")
+
         results = data.get("results", [])
         if not results:
             return "Không tìm thấy xu hướng TikTok & Shorts nào mới trong lượt quét này."
 
         report_lines = []
         for idx, item in enumerate(results, 1):
-            title = item.get("title", "Không có tiêu đề")
-            link = item.get("url", "#")
+            # Tự động lấy tiêu đề theo nhiều key phổ biến khác nhau
+            title = (
+                item.get("title")
+                or item.get("name")
+                or item.get("text")
+                or item.get("caption")
+                or "Không có tiêu đề"
+            )
+
+            # Tự động lấy URL theo nhiều key phổ biến khác nhau
+            link = (
+                item.get("url")
+                or item.get("link")
+                or item.get("web_url")
+                or "#"
+            )
+
             report_lines.append(f"{idx}. {title}\n🔗 Link: {link}")
 
         return "\n\n".join(report_lines)

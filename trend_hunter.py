@@ -25,15 +25,12 @@ def clean_telegram_token(raw_token: str) -> str:
 
 
 def find_key_recursive(data, target_keys: list):
-    """
-    Duyệt đệ quy qua toàn bộ Object/List để tìm giá trị của key đầu tiên khớp danh sách.
-    """
+    """Duyệt đệ quy qua toàn bộ Object/List để tìm giá trị của key đầu tiên khớp danh sách."""
     if isinstance(data, dict):
         for key, value in data.items():
             if key.lower() in target_keys and value:
                 if isinstance(value, str) and value.strip():
                     return value.strip()
-        # Tìm tiếp trong các dict/list con
         for value in data.values():
             res = find_key_recursive(value, target_keys)
             if res:
@@ -53,7 +50,6 @@ def extract_item_info(item):
             return "Liên kết xu hướng", item
         return item, "#"
 
-    # Danh sách các tên field tiêu đề phổ biến
     title_keys = [
         "title",
         "name",
@@ -63,7 +59,6 @@ def extract_item_info(item):
         "summary",
         "headline",
     ]
-    # Danh sách các tên field đường dẫn phổ biến
     url_keys = [
         "url",
         "link",
@@ -131,3 +126,71 @@ def fetch_trending_data(api_key: str, prompt: str) -> str:
         json_data = res.json()
 
         # In log cấu trúc JSON thực tế ra Console của GitHub Actions
+        print("\n🔍 CẤU TRÚC JSON PHẢN HỒI:")
+        print(json.dumps(json_data, indent=2, ensure_ascii=False))
+
+        items = None
+        if isinstance(json_data, list):
+            items = json_data
+        elif isinstance(json_data, dict):
+            for key in ["results", "data", "items", "output", "hits"]:
+                if key in json_data and isinstance(json_data[key], list):
+                    items = json_data[key]
+                    break
+
+        if items is None and isinstance(json_data, dict):
+            items = [json_data]
+
+        if not items:
+            return "Không tìm thấy nội dung xu hướng nào trong lượt quét này."
+
+        report_blocks = []
+        for index, item in enumerate(items, 1):
+            title, link = extract_item_info(item)
+            report_blocks.append(f"{index}. {title}\n🔗 Link: {link}")
+
+        return "\n\n".join(report_blocks)
+
+    except requests.exceptions.Timeout:
+        return "❌ Lỗi: Quá thời gian chờ phản hồi từ Orthogonal API (Timeout)."
+    except Exception as e:
+        print(f" ❌ Lỗi xử lý Python: {str(e)}")
+        return f"❌ Lỗi xử lý dữ liệu hệ thống: {str(e)}"
+
+
+# ---------------------------------------------------------------------------
+# 5. LUỒNG CHẠY CHÍNH (MAIN FUNCTION)
+# ---------------------------------------------------------------------------
+def main():
+    print("============================================")
+    print("🤖 KHỞI ĐỘNG HỆ THỐNG AGENT TREND HUNTER")
+    print("============================================")
+
+    bot_token = clean_telegram_token(TELEGRAM_TOKEN)
+    target_chat_id = str(TELEGRAM_CHAT_ID).strip() if TELEGRAM_CHAT_ID else ""
+
+    if not all([ORTHOGONAL_API_KEY, bot_token, target_chat_id]):
+        print("❌ LỖI HỆ THỐNG: Một hoặc nhiều biến môi trường (Secrets) bị thiếu!")
+        print(
+            f" - ORTHOGONAL_API_KEY: {'Có' if ORTHOGONAL_API_KEY else 'Trống'}"
+        )
+        print(f" - TELEGRAM_TOKEN: {'Có' if bot_token else 'Trống'}")
+        print(f" - TELEGRAM_CHAT_ID: {'Có' if target_chat_id else 'Trống'}")
+        sys.exit(1)
+
+    prompt_query = "Find trending TikTok videos and YouTube Shorts right now."
+    trend_data = fetch_trending_data(ORTHOGONAL_API_KEY, prompt_query)
+
+    final_report = (
+        "🔥 BÁO CÁO XU HƯỚNG TIKTOK & SHORTS 🔥\n\n"
+        f"{trend_data}\n\n"
+        "⚡ Hệ thống vận hành tự động qua GitHub Actions."
+    )
+
+    send_telegram_message(bot_token, target_chat_id, final_report)
+    print("============================================")
+    print("🎉 HOÀN THÀNH TIẾN TRÌNH TỰ ĐỘNG!")
+
+
+if __name__ == "__main__":
+    main()

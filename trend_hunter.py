@@ -26,7 +26,7 @@ chat_id = str(TELEGRAM_CHAT_ID).strip() if TELEGRAM_CHAT_ID else ""
 
 
 def find_key_recursive(data, target_keys: list):
-    """Duyệt đệ quy tìm giá trị của key khớp danh sách."""
+    """Duyệt đệ quy tìm giá trị chuỗi văn bản của key khớp danh sách."""
     if isinstance(data, dict):
         for key, value in data.items():
             if key.lower() in target_keys and value:
@@ -39,6 +39,32 @@ def find_key_recursive(data, target_keys: list):
     elif isinstance(data, list):
         for item in data:
             res = find_key_recursive(item, target_keys)
+            if res:
+                return res
+    return None
+
+
+def extract_url_recursive(data):
+    """Quét đệ quy toàn bộ Object để tìm bất kỳ chuỗi URL hợp lệ nào (bắt đầu bằng http)."""
+    if isinstance(data, str):
+        if data.startswith("http://") or data.startswith("https://"):
+            return data.strip()
+    elif isinstance(data, dict):
+        # Ưu tiên các key tên liên quan tới đường dẫn trước
+        priority_keys = ["url", "link", "web_url", "href", "source", "doc_url", "website"]
+        for key in priority_keys:
+            val = data.get(key)
+            if val and isinstance(val, str) and (val.startswith("http://") or val.startswith("https://")):
+                return val.strip()
+        
+        # Nếu không có key ưu tiên, quét tiếp tất cả các giá trị con
+        for value in data.values():
+            res = extract_url_recursive(value)
+            if res:
+                return res
+    elif isinstance(data, list):
+        for item in data:
+            res = extract_url_recursive(item)
             if res:
                 return res
     return None
@@ -60,7 +86,6 @@ def send_telegram_message(text):
         print(f" 🗳️ Mã phản hồi nhận được từ Telegram: {res.status_code}")
         if res.status_code != 200:
             print(f" 📄 Chi tiết phản hồi lỗi: {res.text}")
-            # Dự phòng gửi dạng text thường nếu HTML bị lỗi thẻ đóng
             payload.pop("parse_mode")
             requests.post(url, json=payload, timeout=20)
     except Exception as e:
@@ -95,7 +120,6 @@ def call_orthogonal_agent(prompt_text):
         print("\n🔍 CẤU TRÚC JSON PHẢN HỒI:")
         print(json.dumps(data, indent=2, ensure_ascii=False))
 
-        # Tìm danh sách kết quả
         results = None
         if isinstance(data, list):
             results = data
@@ -128,12 +152,8 @@ def call_orthogonal_agent(prompt_text):
                     )
                     or "Công cụ hỗ trợ tự động hóa và phát triển ứng dụng."
                 )
-                link = (
-                    find_key_recursive(
-                        item, ["url", "link", "web_url", "href", "source"]
-                    )
-                    or "#"
-                )
+                # Dùng hàm trích xuất link sâu chuyên dụng
+                link = extract_url_recursive(item) or "#"
 
             link_html = (
                 f'<a href="{link}">Truy cập Website / Docs</a>'
@@ -162,10 +182,9 @@ def main():
         print("❌ Lỗi: Cấu hình hệ thống Secrets đang trống hoặc thiếu biến.")
         sys.exit(1)
 
-    # Thay đổi mục tiêu prompt: Tập trung tìm kiếm công cụ AI & API thay vì TikTok
     prompt_query = (
         "Find top 3 innovative AI tools, developer APIs, or automation frameworks released recently. "
-        "Provide their name, description, and website URL."
+        "Provide their name, description, and documentation URL."
     )
 
     raw_report = call_orthogonal_agent(prompt_query)

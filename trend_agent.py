@@ -4,149 +4,130 @@ import re
 import sys
 import requests
 
+# ---------------------------------------------------------------------------
+# 1. CẤU HÌNH BIẾN MÔI TRƯỜNG (GITHUB SECRETS)
+# ---------------------------------------------------------------------------
 ORTHOGONAL_API_KEY = os.getenv("ORTHOGONAL_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
-def extract_clean_token(raw_token):
+# ---------------------------------------------------------------------------
+# 2. CÁC HÀM XỬ LÝ DỮ LIỆU & TIỆN ÍCH
+# ---------------------------------------------------------------------------
+def clean_telegram_token(raw_token: str) -> str:
+    """Làm sạch và trích xuất đúng chuỗi Telegram Token dạng ID:SECRET."""
     if not raw_token:
         return ""
-    raw_str = str(raw_token).strip()
-    match = re.search(r"(\d+:[A-Za-z0-9_-]+)", raw_str)
-    return match.group(1) if match else raw_str.replace(" ", "")
+    token_str = str(raw_token).strip()
+    match = re.search(r"(\d+:[A-Za-z0-9_-]+)", token_str)
+    return match.group(1) if match else token_str.replace(" ", "")
 
 
-token = extract_clean_token(TELEGRAM_TOKEN)
-chat_id = str(TELEGRAM_CHAT_ID).strip() if TELEGRAM_CHAT_ID else ""
+def find_key_recursive(data, target_keys: list):
+    """
+    Duyệt đệ quy qua toàn bộ Object/List để tìm giá trị của key đầu tiên khớp danh sách.
+    """
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key.lower() in target_keys and value:
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        # Tìm tiếp trong các dict/list con
+        for value in data.values():
+            res = find_key_recursive(value, target_keys)
+            if res:
+                return res
+    elif isinstance(data, list):
+        for item in data:
+            res = find_key_recursive(item, target_keys)
+            if res:
+                return res
+    return None
 
 
-def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
-    try:
-        res = requests.post(url, json=payload, timeout=15)
-        if res.status_code != 200:
-            print(f"❌ Lỗi gửi Telegram: {res.text}")
-    except Exception as e:
-        print(f"❌ Lỗi kết nối Telegram: {e}")
-
-
-def extract_url(item):
-    """Tìm đường link từ mọi key khả thi trong object."""
-    if isinstance(item, str) and item.startswith("http"):
-        return item
-    if isinstance(item, dict):
-        for key in [
-            "url",
-            "link",
-            "web_url",
-            "href",
-            "video_url",
-            "source",
-            "uri",
-        ]:
-            val = item.get(key)
-            if val and isinstance(val, str) and val.startswith("http"):
-                return val
-        # Quét sâu hơn vào các dict con (như item['metadata']['url'])
-        for val in item.values():
-            if isinstance(val, dict):
-                sub_url = extract_url(val)
-                if sub_url != "#":
-                    return sub_url
-    return "#"
-
-
-def extract_title(item):
-    """Tìm tiêu đề/nội dung từ mọi key khả thi trong object."""
+def extract_item_info(item):
+    """Trích xuất tiêu đề và đường dẫn từ một mục kết quả."""
     if isinstance(item, str):
-        return item
-    if isinstance(item, dict):
-        for key in [
-            "title",
-            "name",
-            "text",
-            "caption",
-            "description",
-            "summary",
-            "query",
-        ]:
-            val = item.get(key)
-            if val and isinstance(val, str):
-                return val
-    return "Không tìm thấy tiêu đề"
+        if item.startswith("http"):
+            return "Liên kết xu hướng", item
+        return item, "#"
+
+    # Danh sách các tên field tiêu đề phổ biến
+    title_keys = [
+        "title",
+        "name",
+        "caption",
+        "text",
+        "description",
+        "summary",
+        "headline",
+    ]
+    # Danh sách các tên field đường dẫn phổ biến
+    url_keys = [
+        "url",
+        "link",
+        "web_url",
+        "video_url",
+        "href",
+        "source",
+        "uri",
+        "canonicalurl",
+    ]
+
+    title = find_key_recursive(item, title_keys) or "Không có tiêu đề"
+    url = find_key_recursive(item, url_keys) or "#"
+
+    return title, url
 
 
-def call_orthogonal_agent(prompt_text):
-    url = "https://api.orthogonal.com/v1/search"
+# ---------------------------------------------------------------------------
+# 3. HÀM TƯƠNG TÁC TELEGRAM API
+# ---------------------------------------------------------------------------
+def send_telegram_message(token: str, chat_id: str, text: str):
+    """Gửi báo cáo về Telegram Bot."""
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": False,
+    }
+
+    print("\n📤 Đang gửi dữ liệu báo cáo về Telegram...")
+    try:
+        response = requests.post(url, json=payload, timeout=20)
+        print(f" 🗳️ Mã trạng thái Telegram: {response.status_code}")
+        if response.status_code != 200:
+            print(f" ❌ Chi tiết lỗi Telegram: {response.text}")
+        else:
+            print(" 🎉 Gửi báo cáo Telegram thành công!")
+    except Exception as e:
+        print(f" ❌ Kết nối tới Telegram thất bại: {e}")
+
+
+# ---------------------------------------------------------------------------
+# 4. HÀM GỌI ORTHOGONAL API
+# ---------------------------------------------------------------------------
+def fetch_trending_data(api_key: str, prompt: str) -> str:
+    """Truy vấn dữ liệu từ Orthogonal API và định dạng kết quả."""
+    endpoint = "https://api.orthogonal.com/v1/search"
     headers = {
-        "Authorization": f"Bearer {ORTHOGONAL_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    payload = {"prompt": prompt_text, "limit": 3}
+    payload = {"prompt": prompt, "limit": 5}
 
-    print("\n📡 Đang gửi yêu cầu phân tích dữ liệu tới Orthogonal API...")
+    print(f"\n📡 Đang gửi yêu cầu phân tích tới Orthogonal API ({endpoint})...")
     try:
-        response = requests.post(
-            url, json=payload, headers=headers, timeout=30
+        res = requests.post(
+            endpoint, json=payload, headers=headers, timeout=35
         )
+        print(f" 🗳️ Mã trạng thái Orthogonal: {res.status_code}")
 
-        if response.status_code != 200:
-            return f"⚠️ API trả về lỗi status {response.status_code}: {response.text}"
+        if res.status_code != 200:
+            print(f" 📄 Phản hồi lỗi: {res.text}")
+            return f"⚠️ API trả về lỗi code {res.status_code}:\n{res.text[:500]}"
 
-        data = response.json()
+        json_data = res.json()
 
-        # In log JSON chi tiết trên GitHub Actions
-        print("🔍 FULL API RESPONSE:")
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-
-        # Lấy danh sách kết quả (hỗ trợ nhiều chuẩn response khác nhau)
-        results = (
-            data.get("results")
-            or data.get("data")
-            or data.get("items")
-            or data
-        )
-
-        if not isinstance(results, list):
-            # Nếu trả về dạng dict đơn, gửi thẳng JSON về để debug
-            return f"ℹ️ Cấu trúc dữ liệu nhận được:\n{json.dumps(data, indent=2, ensure_ascii=False)[:3000]}"
-
-        if not results:
-            return "Không tìm thấy xu hướng TikTok & Shorts nào mới trong lượt quét này."
-
-        report_lines = []
-        for idx, item in enumerate(results, 1):
-            title = extract_title(item)
-            link = extract_url(item)
-            report_lines.append(f"{idx}. {title}\n🔗 Link: {link}")
-
-        return "\n\n".join(report_lines)
-
-    except Exception as e:
-        print(f"❌ Lỗi xử lý Python: {str(e)}")
-        return f"❌ Lỗi hệ thống: {str(e)}"
-
-
-def main():
-    if not all([ORTHOGONAL_API_KEY, token, chat_id]):
-        print("❌ Lỗi: Cấu hình Secrets chưa đủ.")
-        sys.exit(1)
-
-    prompt_query = (
-        "Find trending TikTok videos and YouTube Shorts right now."
-    )
-    raw_report = call_orthogonal_agent(prompt_query)
-
-    telegram_report = (
-        "🔥 BÁO CÁO XU HƯỚNG TIKTOK & SHORTS 🔥\n\n"
-        f"{raw_report}\n\n"
-        "⚡ Hệ thống vận hành tự động qua GitHub Actions."
-    )
-
-    send_telegram_message(telegram_report)
-
-
-if __name__ == "__main__":
-    main()
+        # In log cấu trúc JSON thực tế ra Console của GitHub Actions

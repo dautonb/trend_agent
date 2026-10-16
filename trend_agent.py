@@ -16,14 +16,16 @@ if not all([ORTHOGONAL_API_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]):
     print("❌ Lỗi: Thiếu cấu hình Secrets trên GitHub. Không thể tiếp tục.")
     sys.exit(1)
 
+# Tự động làm sạch chuỗi Token để loại bỏ ký tự lạ, khoảng trắng hoặc dấu sao ẩn
+clean_token = str(TELEGRAM_TOKEN).strip().replace("*", "")
+clean_chat_id = str(TELEGRAM_CHAT_ID).strip().replace("*", "")
+
 def call_orthogonal_agent(prompt_text):
-    # Sửa đổi endpoint sang /v1/search để xử lý prompt tự nhiên theo tài liệu Orthogonal
-    url = "https://api.orthogonal.com/v1/search"
+    url = "https://orthogonal.com"
     headers = {
         "Authorization": f"Bearer {ORTHOGONAL_API_KEY}",
         "Content-Type": "application/json"
     }
-    # Payload chuẩn theo đặc tả API của Orthogonal dành cho Agentic Search
     payload = {
         "prompt": prompt_text,
         "limit": 5
@@ -39,12 +41,10 @@ def call_orthogonal_agent(prompt_text):
             return None
             
         data = response.json()
-        # Trích xuất dữ liệu mảng kết quả trả về từ Unified API
         results = data.get("results", [])
         if not results:
             return "Không tìm thấy xu hướng TikTok & Shorts nào mới trong lượt quét này."
             
-        # Gom kết quả thành khối văn bản sạch
         report_lines = []
         for idx, item in enumerate(results, 1):
             title = item.get("title", "Không có tiêu đề")
@@ -59,11 +59,10 @@ def call_orthogonal_agent(prompt_text):
         return None
 
 def send_telegram_message(text):
-    url = f"https://telegram.org{TELEGRAM_TOKEN}/sendMessage"
-    
-    # Loại bỏ parse_mode="Markdown" để tránh lỗi sập đường truyền 400 Bad Request
+    # Sử dụng chuỗi Token đã được làm sạch hoàn toàn ở bước trên
+    url = f"https://telegram.org{clean_token}/sendMessage"
     payload = {
-        "chat_id": str(TELEGRAM_CHAT_ID).strip(),
+        "chat_id": clean_chat_id,
         "text": text
     }
     print("📤 Đang chuyển tiếp báo cáo về ứng dụng Telegram...")

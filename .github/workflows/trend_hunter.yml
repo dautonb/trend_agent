@@ -4,11 +4,12 @@ on:
   schedule:
     # Chạy vào 00:00 UTC (7:00 AM VN) và 12:00 UTC (19:00 PM VN) hàng ngày
     - cron: '0 0,12 * * *'
-  workflow_dispatch: # Cho phép bạn bấm nút "Run workflow" bằng tay để test bất cứ lúc nào
+  workflow_dispatch: # Cho phép bấm nút "Run workflow" chạy bằng tay để test
 
 jobs:
   run-agent:
-    runs-on: ubuntu-latest
+    # Đổi từ ubuntu-latest sang ubuntu-24.04 để tắt cảnh báo di trú hệ điều hành
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout mã nguồn
@@ -17,7 +18,7 @@ jobs:
     - name: Thiết lập Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10' # Đã sửa từ 'python-python-version' thành 'python-version'
+        python-version: '3.10'
 
     - name: Cài đặt thư viện phụ thuộc
       run: |
